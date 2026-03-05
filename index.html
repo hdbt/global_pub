@@ -636,21 +636,20 @@
       if (cRes.ok) {
         const cData = await cRes.json();
         const groups = Array.isArray(cData?.group_by) ? cData.group_by : [];
-        if (groups.length > 0) {
-          renderCountrySnapshot({
-            countries: groups
-              .filter(g => {
-                if (typeof g.key !== 'string') return false;
-                const k = g.key.trim();
-                return k.length === 2 && /^[A-Za-z]{2}$/.test(k);
-              })
-              .slice(0, 15)
-              .map(g => ({
-                iso2: g.key.trim().toUpperCase(),
-                name: g.key_display_name || null,
-                count: g.count
-              }))
-          });
+        const validCountries = groups
+          .filter(g => {
+            if (typeof g.key !== 'string') return false;
+            const k = g.key.trim();
+            return k.length === 2 && /^[A-Za-z]{2}$/.test(k);
+          })
+          .slice(0, 15)
+          .map(g => ({
+            iso2: g.key.trim().toUpperCase(),
+            name: g.key_display_name || null,
+            count: g.count
+          }));
+        if (validCountries.length > 0) {
+          renderCountrySnapshot({ countries: validCountries });
           countryDone = true;
         }
       }
@@ -658,14 +657,16 @@
       if (dRes.ok) {
         const dData = await dRes.json();
         const groups = Array.isArray(dData?.group_by) ? dData.group_by : [];
-        if (groups.length > 0) {
-          renderDisciplineSnapshot({
-            disciplines: groups.slice(0, 8).map(g => ({
-              name: g.key_display_name,
-              count: g.count,
-              color: domainColor(g.key_display_name)
-            }))
-          });
+        const validDisciplines = groups
+          .filter(g => g.key_display_name)
+          .slice(0, 8)
+          .map(g => ({
+            name: g.key_display_name,
+            count: g.count,
+            color: domainColor(g.key_display_name)
+          }));
+        if (validDisciplines.length > 0) {
+          renderDisciplineSnapshot({ disciplines: validDisciplines });
           disciplineDone = true;
         }
       }
