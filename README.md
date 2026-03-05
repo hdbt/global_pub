@@ -64,7 +64,9 @@ The following constants near the top of the `<script>` block can be tuned:
 | `LIVE_MODE` | `true` | Toggle live OpenAlex polling on/off |
 | `POLL_INTERVAL_MS` | `25000` | How often (ms) to poll for new works |
 | `REPLAY_INTERVAL_MS` | `1500` | Delay (ms) between drip-fed globe events |
-| `INITIAL_FETCH_SIZE` | `200` | Number of works fetched on the very first poll |
+| `INITIAL_FETCH_SIZE` | `200` | Works per page on the first fetch (OpenAlex API max) |
+| `INITIAL_FETCH_PAGES` | `5` | Pages fetched on startup, filling up to 1 000 buffered works |
+| `QUEUE_MAX` | `1000` | Hard cap on replay-queue depth |
 | `MAX_REPLAY_SKIP` | `5` | Max works to skip per tick when no country coords are found |
 | `ZOOM_MIN` / `ZOOM_MAX` | `0.4` / `3.0` | Zoom range |
 
