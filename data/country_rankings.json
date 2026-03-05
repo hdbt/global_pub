@@ -1,0 +1,14 @@
+{
+  "source": "YOUR_SOURCE_HERE (e.g., SCImago / OpenAlex snapshot)",
+  "as_of": "2026-03-05",
+  "countries": [
+    { "iso2": "CN", "count": 2800000 },
+    { "iso2": "US", "count": 2100000 },
+    { "iso2": "GB", "count": 700000 },
+    { "iso2": "DE", "count": 650000 },
+    { "iso2": "JP", "count": 520000 },
+    { "iso2": "IN", "count": 500000 },
+    { "iso2": "FR", "count": 420000 },
+    { "iso2": "CA", "count": 380000 }
+  ]
+}

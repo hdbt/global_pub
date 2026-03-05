@@ -1,0 +1,14 @@
+{
+  "source": "YOUR_SOURCE_HERE (e.g., OpenAlex concepts snapshot)",
+  "as_of": "2026-03-05",
+  "disciplines": [
+    { "name": "Computer science", "count": 1200000, "color": "#00d4ff" },
+    { "name": "Medicine", "count": 1100000, "color": "#a855f7" },
+    { "name": "Biology", "count": 950000, "color": "#22c55e" },
+    { "name": "Engineering", "count": 900000, "color": "#00d4ff" },
+    { "name": "Economics", "count": 380000, "color": "#22c55e" },
+    { "name": "History", "count": 210000, "color": "#f59e0b" },
+    { "name": "Linguistics", "count": 190000, "color": "#f59e0b" },
+    { "name": "Climate science", "count": 160000, "color": "#ef4444" }
+  ]
+}
