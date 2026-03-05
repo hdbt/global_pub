@@ -245,10 +245,6 @@
       <span class="lbl">Events Today (seen)</span>
     </div>
     <div class="stat-pill">
-      <span class="val" id="cnt-rate">0</span>
-      <span class="lbl">Queued</span>
-    </div>
-    <div class="stat-pill">
       <span class="val" id="cnt-countries">0</span>
       <span class="lbl">Countries Active</span>
     </div>
@@ -309,7 +305,7 @@
     'https://api.openalex.org/works?per-page=25&sort=publication_date:desc';
   const POLL_INTERVAL_MS = 25000; // 25s; freeze if nothing new
   const MAX_NEW_PER_POLL = 6;     // cap bursts so it stays readable
-  const REPLAY_INTERVAL_MS = 700; // drip-feed one event every 700ms
+  const REPLAY_INTERVAL_MS = 1500; // drip-feed one event every 1500ms
   const INITIAL_FETCH_SIZE = 200; // first poll fetches a larger batch
   const MAX_REPLAY_SKIP = 5;     // max works to skip per drip tick (no country/coords)
 
@@ -513,13 +509,11 @@
   const todayEventCountByCountry = Object.fromEntries(COUNTRIES.map(c => [c[5], 0]));
 
   const elToday     = document.getElementById('cnt-today');
-  const elRate      = document.getElementById('cnt-rate');
   const elCountries = document.getElementById('cnt-countries');
   const elEvents    = document.getElementById('cnt-events');
 
   function updateCounters() {
     elToday.textContent     = totalEvents.toLocaleString();
-    elRate.textContent      = replayQueue.length.toLocaleString();
     elCountries.textContent = activeCountrySet.size;
     elEvents.textContent    = totalEvents.toLocaleString();
   }
@@ -552,9 +546,17 @@
         if (groups.length > 0) {
           renderCountrySnapshot({
             countries: groups
-              .filter(g => typeof g.key === 'string' && g.key.length === 2)
+              .filter(g => {
+                if (typeof g.key !== 'string') return false;
+                const k = g.key.trim();
+                return k.length === 2 && /^[A-Za-z]{2}$/.test(k);
+              })
               .slice(0, 15)
-              .map(g => ({ iso2: g.key, count: g.count }))
+              .map(g => ({
+                iso2: g.key.trim().toUpperCase(),
+                name: g.key_display_name || null,
+                count: g.count
+              }))
           });
           countryDone = true;
         }
