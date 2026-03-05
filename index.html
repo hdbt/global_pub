@@ -311,6 +311,7 @@
   const MAX_NEW_PER_POLL = 6;     // cap bursts so it stays readable
   const REPLAY_INTERVAL_MS = 700; // drip-feed one event every 700ms
   const INITIAL_FETCH_SIZE = 200; // first poll fetches a larger batch
+  const MAX_REPLAY_SKIP = 5;     // max works to skip per drip tick (no country/coords)
 
   const statusEl = document.getElementById('status-text');
 
@@ -1062,7 +1063,7 @@
   /* Drip-feed one event from the buffer onto the globe */
   function replayNext() {
     let attempts = 0;
-    while (replayQueue.length > 0 && attempts < 5) {
+    while (replayQueue.length > 0 && attempts < MAX_REPLAY_SKIP) {
       attempts++;
       const w = replayQueue.shift();
 
