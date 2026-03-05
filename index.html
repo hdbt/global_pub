@@ -143,7 +143,7 @@
     .country-name  { flex: 1; font-size: 0.7rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .country-bar-wrap { width: 54px; height: 4px; background: rgba(255,255,255,.07); border-radius: 2px; flex-shrink: 0; overflow: hidden; }
     .country-bar   { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 1s ease; }
-    .country-count { font-size: 0.6rem; color: var(--accent); font-variant-numeric: tabular-nums; width: 24px; text-align: right; flex-shrink: 0; }
+    .country-count { font-size: 0.6rem; color: var(--accent); font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; flex-shrink: 0; }
 
     /* Fields */
     .field-row {
@@ -246,7 +246,7 @@
     </div>
     <div class="stat-pill">
       <span class="val" id="cnt-rate">0</span>
-      <span class="lbl">Poll Interval (sec)</span>
+      <span class="lbl">Queued</span>
     </div>
     <div class="stat-pill">
       <span class="val" id="cnt-countries">0</span>
@@ -309,6 +309,8 @@
     'https://api.openalex.org/works?per-page=25&sort=publication_date:desc';
   const POLL_INTERVAL_MS = 25000; // 25s; freeze if nothing new
   const MAX_NEW_PER_POLL = 6;     // cap bursts so it stays readable
+  const REPLAY_INTERVAL_MS = 700; // drip-feed one event every 700ms
+  const INITIAL_FETCH_SIZE = 200; // first poll fetches a larger batch
 
   const statusEl = document.getElementById('status-text');
 
@@ -423,6 +425,23 @@
     }[ch]));
   }
 
+  /* Format large numbers compactly: 2800000 → "2.8M", 15000 → "15.0K" */
+  function compactNum(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return Number(n).toLocaleString();
+  }
+
+  /* Map a concept / discipline name to a domain color */
+  function domainColor(name) {
+    const n = (name || '').toLowerCase();
+    if (/medicine|health|clinical|neuro|genom|pharma|immun|oncolog|biology|biochem/.test(n)) return '#a855f7';
+    if (/psycholog|sociolog|econom|politic|education|anthropolog|social/.test(n)) return '#22c55e';
+    if (/history|philosophy|linguistic|literature|arts|music|religion/.test(n)) return '#f59e0b';
+    if (/climate|environment|ecolog|geolog|earth|ocean|hydrolog/.test(n)) return '#ef4444';
+    return '#00d4ff';
+  }
+
   /* ── 3. ORTHOGRAPHIC PROJECTION ─────────────────────────────────────── */
 
   function project(latDeg, lngDeg, rotLon, rotLat) {
@@ -499,7 +518,7 @@
 
   function updateCounters() {
     elToday.textContent     = totalEvents.toLocaleString();
-    elRate.textContent      = Math.round(POLL_INTERVAL_MS / 1000).toLocaleString();
+    elRate.textContent      = replayQueue.length.toLocaleString();
     elCountries.textContent = activeCountrySet.size;
     elEvents.textContent    = totalEvents.toLocaleString();
   }
@@ -513,18 +532,66 @@
   }
 
   async function loadAggregates() {
+    let countryDone = false, disciplineDone = false;
+
+    /* Try live OpenAlex group-by endpoints first */
     try {
-      const [countries, disciplines] = await Promise.all([
-        loadJson('./data/country_rankings.json'),
-        loadJson('./data/discipline_breakdown.json'),
+      const [cRes, dRes] = await Promise.all([
+        fetch('https://api.openalex.org/works?group_by=authorships.institutions.country_code', {
+          cache: 'no-store', headers: { 'Accept': 'application/json' }
+        }),
+        fetch('https://api.openalex.org/works?group_by=concepts.id', {
+          cache: 'no-store', headers: { 'Accept': 'application/json' }
+        }),
       ]);
-      renderCountrySnapshot(countries);
-      renderDisciplineSnapshot(disciplines);
-      setStatus('Live (OpenAlex). Waiting for new works…');
+
+      if (cRes.ok) {
+        const cData = await cRes.json();
+        const groups = Array.isArray(cData?.group_by) ? cData.group_by : [];
+        if (groups.length > 0) {
+          renderCountrySnapshot({
+            countries: groups
+              .filter(g => typeof g.key === 'string' && g.key.length === 2)
+              .slice(0, 15)
+              .map(g => ({ iso2: g.key, count: g.count }))
+          });
+          countryDone = true;
+        }
+      }
+
+      if (dRes.ok) {
+        const dData = await dRes.json();
+        const groups = Array.isArray(dData?.group_by) ? dData.group_by : [];
+        if (groups.length > 0) {
+          renderDisciplineSnapshot({
+            disciplines: groups.slice(0, 8).map(g => ({
+              name: g.key_display_name,
+              count: g.count,
+              color: domainColor(g.key_display_name)
+            }))
+          });
+          disciplineDone = true;
+        }
+      }
     } catch (e) {
-      console.error(e);
-      setStatus('Live (OpenAlex). Aggregates failed to load.');
+      console.warn('Live aggregate fetch failed, falling back to JSON:', e);
     }
+
+    /* Fall back to local JSON for any panel that didn't load live */
+    try {
+      if (!countryDone) {
+        const countries = await loadJson('./data/country_rankings.json');
+        renderCountrySnapshot(countries);
+      }
+      if (!disciplineDone) {
+        const disciplines = await loadJson('./data/discipline_breakdown.json');
+        renderDisciplineSnapshot(disciplines);
+      }
+    } catch (e) {
+      console.error('JSON fallback also failed:', e);
+    }
+
+    setStatus('Live (OpenAlex). Waiting for new works…');
   }
 
   function renderCountrySnapshot(snapshot) {
@@ -545,7 +612,7 @@
           <div class="country-bar-wrap">
             <div class="country-bar" style="width:${pct}%"></div>
           </div>
-          <span class="country-count">${Number(r.count || 0).toLocaleString()}</span>
+          <span class="country-count">${compactNum(r.count || 0)}</span>
         </div>`;
     }).join('');
   }
@@ -560,7 +627,7 @@
         <div class="field-row">
           <span class="field-name">${safeText(r.name || 'Unknown')}</span>
           <span class="field-badge" style="background:${color}22;color:${color};border:1px solid ${color}44">
-            ${Number(r.count || 0).toLocaleString()}
+            ${compactNum(r.count || 0)}
           </span>
         </div>`;
     }).join('');
@@ -895,6 +962,8 @@
 
   const seen = new Set(); // OpenAlex work IDs
   let lastPollAt = 0;
+  const replayQueue = [];
+  let isFirstPoll = true;
 
   function inferCountryIso2FromWork(work) {
     // Look through authorships → institutions → country_code
@@ -950,7 +1019,10 @@
     const started = performance.now();
     try {
       setStatus('Polling OpenAlex…');
-      const res = await fetch(OPENALEX_ENDPOINT, {
+      const perPage = isFirstPoll ? INITIAL_FETCH_SIZE : 25;
+      const url = `https://api.openalex.org/works?per-page=${perPage}&sort=publication_date:desc`;
+
+      const res = await fetch(url, {
         cache: 'no-store',
         headers: { 'Accept': 'application/json' }
       });
@@ -959,40 +1031,25 @@
       const data = await res.json();
       const results = Array.isArray(data?.results) ? data.results : [];
 
-      // Identify new works; process oldest-first for nicer animation
+      // Identify new works; buffer oldest-first for smooth replay
       const fresh = [];
       for (const w of results) {
         const id = w?.id;
         if (!id || seen.has(id)) continue;
+        seen.add(id);
         fresh.push(w);
       }
       fresh.reverse();
 
-      if (fresh.length === 0) {
-        setStatus('No new works. Frozen (waiting)…');
-        return;
+      // Push into the replay queue (drip-fed by replayNext)
+      for (const w of fresh) {
+        replayQueue.push(w);
       }
 
-      const toProcess = fresh.slice(0, MAX_NEW_PER_POLL);
-      for (const w of toProcess) {
-        const id = w.id;
-        seen.add(id);
-
-        const iso2 = inferCountryIso2FromWork(w);
-        if (!iso2) continue; // strict: skip if no country
-        const country = COUNTRY_BY_ISO.get(iso2);
-        if (!country) continue; // skip if we don't have coords for that ISO2 in our list
-
-        const field = domainFieldFromConcepts(w);
-        const title = w?.display_name || w?.title || '(untitled)';
-        const venue = w?.host_venue?.display_name || '';
-        const year  = yearFromWork(w);
-
-        spawnEventReal(country, field, title, venue, year);
-      }
+      isFirstPoll = false;
 
       const ms = Math.round(performance.now() - started);
-      setStatus(`Live. Added ${toProcess.length} new work(s) in ${ms}ms.`);
+      setStatus(`Live. Buffered ${fresh.length} work(s) in ${ms}ms. Queue: ${replayQueue.length}`);
     } catch (e) {
       console.error(e);
       setStatus('OpenAlex error. Retrying…');
@@ -1000,6 +1057,30 @@
       lastPollAt = Date.now();
       updateCounters();
     }
+  }
+
+  /* Drip-feed one event from the buffer onto the globe */
+  function replayNext() {
+    let attempts = 0;
+    while (replayQueue.length > 0 && attempts < 5) {
+      attempts++;
+      const w = replayQueue.shift();
+
+      const iso2 = inferCountryIso2FromWork(w);
+      if (!iso2) continue;
+      const country = COUNTRY_BY_ISO.get(iso2);
+      if (!country) continue;
+
+      const field = domainFieldFromConcepts(w);
+      const title = w?.display_name || w?.title || '(untitled)';
+      const venue = w?.host_venue?.display_name || '';
+      const year  = yearFromWork(w);
+
+      spawnEventReal(country, field, title, venue, year);
+      updateCounters();
+      return;
+    }
+    updateCounters();
   }
 
   /* ── 12. MAIN LOOP (render only; no simulation) ────────────────────── */
@@ -1025,6 +1106,8 @@
     // Immediately poll once at startup, then interval
     pollOpenAlex();
     setInterval(pollOpenAlex, POLL_INTERVAL_MS);
+    // Drip-feed buffered events onto the globe
+    setInterval(replayNext, REPLAY_INTERVAL_MS);
     requestAnimationFrame(loop);
   });
 
