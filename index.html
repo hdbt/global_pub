@@ -309,6 +309,8 @@
     'https://api.openalex.org/works?per-page=25&sort=publication_date:desc';
   const POLL_INTERVAL_MS = 25000; // 25s; freeze if nothing new
   const MAX_NEW_PER_POLL = 6;     // cap bursts so it stays readable
+  const BURST_FETCH_SIZE = 100;          // fetch 100 recent works at startup
+  const BURST_REPLAY_DURATION_MS = 25000; // replay them over 25 seconds
 
   const statusEl = document.getElementById('status-text');
 
@@ -423,6 +425,15 @@
     }[ch]));
   }
 
+  function colorForFieldName(name) {
+    const lower = (name || '').toLowerCase();
+    if (/medicine|health|clinical|neuro|genom|pharma|immun|oncolog/.test(lower)) return '#a855f7';
+    if (/psycholog|sociolog|econom|politic|education|anthropolog|social/.test(lower)) return '#22c55e';
+    if (/history|philosophy|linguistic|literature|arts|music|religion/.test(lower)) return '#f59e0b';
+    if (/climate|environment|ecolog|geolog|earth|ocean|hydrolog/.test(lower)) return '#ef4444';
+    return '#00d4ff';
+  }
+
   /* ── 3. ORTHOGRAPHIC PROJECTION ─────────────────────────────────────── */
 
   function project(latDeg, lngDeg, rotLon, rotLat) {
@@ -515,16 +526,50 @@
   async function loadAggregates() {
     try {
       const [countries, disciplines] = await Promise.all([
-        loadJson('./data/country_rankings.json'),
-        loadJson('./data/discipline_breakdown.json'),
+        loadLiveCountryAggregates().catch(() => loadJson('./data/country_rankings.json')),
+        loadLiveDisciplineAggregates().catch(() => loadJson('./data/discipline_breakdown.json')),
       ]);
       renderCountrySnapshot(countries);
       renderDisciplineSnapshot(disciplines);
-      setStatus('Live (OpenAlex). Waiting for new works…');
+      setStatus('Live (OpenAlex). Loading recent publications…');
     } catch (e) {
       console.error(e);
       setStatus('Live (OpenAlex). Aggregates failed to load.');
     }
+  }
+
+  async function loadLiveCountryAggregates() {
+    const url = 'https://api.openalex.org/works?group_by=authorships.institutions.country_code';
+    const res = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error(`OpenAlex HTTP ${res.status}`);
+    const data = await res.json();
+    const groups = Array.isArray(data?.group_by) ? data.group_by : [];
+    const countries = groups
+      .filter(g => g.key && g.key.length === 2)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+      .map(g => ({ iso2: g.key.toUpperCase(), count: g.count }));
+    if (countries.length === 0) throw new Error('No country data from OpenAlex');
+    return { source: 'OpenAlex (live)', as_of: new Date().toISOString().slice(0, 10), countries };
+  }
+
+  async function loadLiveDisciplineAggregates() {
+    const url = 'https://api.openalex.org/works?group_by=concepts.id';
+    const res = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error(`OpenAlex HTTP ${res.status}`);
+    const data = await res.json();
+    const groups = Array.isArray(data?.group_by) ? data.group_by : [];
+    const disciplines = groups
+      .filter(g => g.key_display_name)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+      .map(g => ({
+        name: g.key_display_name,
+        count: g.count,
+        color: colorForFieldName(g.key_display_name),
+      }));
+    if (disciplines.length === 0) throw new Error('No discipline data from OpenAlex');
+    return { source: 'OpenAlex (live)', as_of: new Date().toISOString().slice(0, 10), disciplines };
   }
 
   function renderCountrySnapshot(snapshot) {
@@ -896,6 +941,57 @@
   const seen = new Set(); // OpenAlex work IDs
   let lastPollAt = 0;
 
+  /* Pre-load a batch of recent works and replay them as staggered events
+     so the globe appears active immediately on page load. */
+  async function loadInitialBurst() {
+    try {
+      setStatus('Loading recent publications…');
+      const url = `https://api.openalex.org/works?per-page=${BURST_FETCH_SIZE}&sort=publication_date:desc`;
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!res.ok) throw new Error(`OpenAlex HTTP ${res.status}`);
+
+      const data = await res.json();
+      const results = Array.isArray(data?.results) ? data.results : [];
+
+      const validWorks = [];
+      for (const w of results) {
+        const id = w?.id;
+        if (!id) continue;
+        seen.add(id); // mark as seen so regular polling skips them
+
+        const iso2 = inferCountryIso2FromWork(w);
+        if (!iso2) continue;
+        const country = COUNTRY_BY_ISO.get(iso2);
+        if (!country) continue;
+
+        const field = domainFieldFromConcepts(w);
+        const title = w?.display_name || w?.title || '(untitled)';
+        const venue = w?.host_venue?.display_name || '';
+        const year  = yearFromWork(w);
+        validWorks.push({ country, field, title, venue, year });
+      }
+
+      // Stagger spawns over BURST_REPLAY_DURATION_MS so they appear one-by-one
+      const count = validWorks.length;
+      for (let i = 0; i < count; i++) {
+        const delay = count > 1 ? (i / (count - 1)) * (BURST_REPLAY_DURATION_MS - 500) : 0;
+        const w = validWorks[i];
+        setTimeout(() => {
+          spawnEventReal(w.country, w.field, w.title, w.venue, w.year);
+          updateCounters();
+        }, delay);
+      }
+
+      setStatus(`Replaying ${validWorks.length} recent publications…`);
+    } catch (e) {
+      console.error('Initial burst failed:', e);
+      setStatus('Burst load failed. Falling back to polling…');
+    }
+  }
+
   function inferCountryIso2FromWork(work) {
     // Look through authorships → institutions → country_code
     const authorships = Array.isArray(work?.authorships) ? work.authorships : [];
@@ -1022,9 +1118,14 @@
   /* Kick off */
   updateCounters();
   loadAggregates().finally(() => {
-    // Immediately poll once at startup, then interval
-    pollOpenAlex();
-    setInterval(pollOpenAlex, POLL_INTERVAL_MS);
+    // Load initial burst of recent works for immediate visual activity
+    loadInitialBurst().finally(() => {
+      // Start regular polling after the burst replay finishes (with buffer)
+      setTimeout(() => {
+        pollOpenAlex();
+        setInterval(pollOpenAlex, POLL_INTERVAL_MS);
+      }, BURST_REPLAY_DURATION_MS + 500);
+    });
     requestAnimationFrame(loop);
   });
 
