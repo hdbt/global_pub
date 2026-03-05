@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Global Academic Publishing — Live Map</title>
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #050a14;
+      --panel-bg:  rgba(6, 15, 35, 0.88);
+      --accent:    #00d4ff;
+      --accent2:   #a855f7;
+      --accent3:   #22c55e;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --border:    rgba(0, 212, 255, 0.18);
+      --glow:      0 0 20px rgba(0, 212, 255, 0.35);
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Layout ── */
+    #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+    /* ── Top bar ── */
+    #topbar {
+      position: relative; z-index: 20;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+
+    #topbar h1 {
+      font-size: 1.05rem; font-weight: 700; letter-spacing: 0.05em;
+      color: var(--accent); text-shadow: var(--glow);
+      display: flex; align-items: center; gap: 9px;
+    }
+
+    .pulse-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--accent3); box-shadow: 0 0 8px var(--accent3);
+      animation: pulse-ring 1.6s ease-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse-ring {
+      0%   { box-shadow: 0 0 0 0   rgba(34,197,94,.7); }
+      70%  { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+      100% { box-shadow: 0 0 0 0   rgba(34,197,94,0); }
+    }
+
+    .live-tag {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em;
+      color: var(--accent3); text-transform: uppercase;
+    }
+
+    /* ── Counter strip ── */
+    #counter-strip {
+      position: relative; z-index: 20;
+      display: flex; gap: 2px; flex-wrap: wrap;
+      padding: 0 20px 7px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+
+    .stat-pill {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 5px 16px;
+      background: rgba(0,212,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-width: 105px;
+    }
+    .stat-pill .val {
+      font-size: 1.2rem; font-weight: 700;
+      color: var(--accent); font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      text-shadow: 0 0 10px rgba(0,212,255,.5);
+    }
+    .stat-pill .lbl {
+      font-size: 0.62rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em; margin-top: 1px;
+    }
+
+    /* ── Canvas area ── */
+    #canvas-wrap {
+      flex: 1; position: relative; overflow: hidden;
+    }
+
+    #globe-canvas {
+      display: block;
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+    }
+
+    /* ── Side panel ── */
+    #side-panel {
+      position: absolute; top: 10px; right: 14px; z-index: 20;
+      width: 218px;
+      display: flex; flex-direction: column; gap: 9px;
+    }
+
+    .panel-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      backdrop-filter: blur(12px);
+    }
+
+    .panel-card h3 {
+      font-size: 0.66rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--muted); margin-bottom: 9px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .panel-card h3 .dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent); box-shadow: 0 0 5px var(--accent);
+    }
+
+    /* Country leaderboard */
+    .country-row {
+      display: flex; align-items: center; gap: 7px;
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(255,255,255,.04);
+    }
+    .country-row:last-child { border-bottom: none; }
+    .country-rank  { font-size: 0.6rem; color: var(--muted); width: 13px; text-align: right; flex-shrink: 0; }
+    .country-flag  { font-size: .9rem; flex-shrink: 0; }
+    .country-name  { flex: 1; font-size: 0.7rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .country-bar-wrap { width: 54px; height: 4px; background: rgba(255,255,255,.07); border-radius: 2px; flex-shrink: 0; overflow: hidden; }
+    .country-bar   { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 1s ease; }
+    .country-count { font-size: 0.6rem; color: var(--accent); font-variant-numeric: tabular-nums; width: 24px; text-align: right; flex-shrink: 0; }
+
+    /* Fields */
+    .field-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 2px 0; font-size: 0.68rem;
+    }
+    .field-name  { color: var(--text); }
+    .field-badge {
+      font-size: 0.58rem; font-weight: 700;
+      padding: 1px 6px; border-radius: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Feed */
+    #feed-list {
+      max-height: 170px; overflow: hidden;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .feed-item {
+      font-size: 0.65rem; padding: 4px 7px;
+      border-radius: 5px; border-left: 2px solid var(--accent);
+      background: rgba(0,212,255,.04);
+      animation: slide-in .35s ease;
+      flex-shrink: 0;
+    }
+    .feed-item .fi-country { color: var(--accent); font-weight: 600; }
+    .feed-item .fi-field   { color: var(--accent2); }
+    .feed-item .fi-text    { color: var(--muted); line-height: 1.3; }
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateX(8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── Legend ── */
+    #legend {
+      position: absolute; bottom: 14px; left: 14px; z-index: 20;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 13px;
+      backdrop-filter: blur(12px);
+      font-size: 0.65rem;
+    }
+    #legend h4 {
+      font-size: 0.62rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
+    }
+    .legend-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 3px; color: var(--text);
+    }
+    .legend-swatch { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Speed control ── */
+    #controls {
+      position: absolute; bottom: 14px; right: 14px; z-index: 20;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 13px;
+      backdrop-filter: blur(12px);
+      font-size: 0.65rem;
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    #controls label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.62rem; }
+    #speed-slider {
+      -webkit-appearance: none;
+      width: 108px; height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,.1);
+      outline: none; cursor: pointer;
+    }
+    #speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 11px; height: 11px; border-radius: 50%;
+      background: var(--accent); box-shadow: 0 0 6px var(--accent); cursor: pointer;
+    }
+
+    @media (max-width: 600px) {
+      #side-panel { display: none; }
+      #legend { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Top bar -->
+  <div id="topbar">
+    <h1>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="2" y1="12" x2="22" y2="12"/>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+      </svg>
+      Global Academic Publishing
+    </h1>
+    <div class="live-tag">
+      <div class="pulse-dot"></div>
+      Simulated Live Feed
+    </div>
+  </div>
+
+  <!-- Counter strip -->
+  <div id="counter-strip">
+    <div class="stat-pill">
+      <span class="val" id="cnt-today">0</span>
+      <span class="lbl">Papers Today</span>
+    </div>
+    <div class="stat-pill">
+      <span class="val" id="cnt-rate">0</span>
+      <span class="lbl">Per Hour (avg)</span>
+    </div>
+    <div class="stat-pill">
+      <span class="val" id="cnt-countries">0</span>
+      <span class="lbl">Countries Active</span>
+    </div>
+    <div class="stat-pill">
+      <span class="val" id="cnt-events">0</span>
+      <span class="lbl">Events Shown</span>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvas-wrap">
+    <canvas id="globe-canvas"></canvas>
+
+    <!-- Side panel -->
+    <div id="side-panel">
+      <div class="panel-card">
+        <h3><span class="dot"></span> Top Publishing Countries</h3>
+        <div id="country-list"></div>
+      </div>
+      <div class="panel-card">
+        <h3><span class="dot" style="background:var(--accent2);box-shadow:0 0 5px var(--accent2)"></span> Active Fields</h3>
+        <div id="field-list"></div>
+      </div>
+      <div class="panel-card">
+        <h3><span class="dot" style="background:var(--accent3);box-shadow:0 0 5px var(--accent3)"></span> Recent Publications</h3>
+        <div id="feed-list"></div>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div id="legend">
+      <h4>Research Domain</h4>
+      <div class="legend-row"><div class="legend-swatch" style="background:#00d4ff;box-shadow:0 0 5px #00d4ff"></div>STEM / Computing</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#a855f7;box-shadow:0 0 5px #a855f7"></div>Medicine / Health</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#22c55e;box-shadow:0 0 5px #22c55e"></div>Social Sciences</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#f59e0b;box-shadow:0 0 5px #f59e0b"></div>Arts &amp; Humanities</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#ef4444;box-shadow:0 0 5px #ef4444"></div>Earth &amp; Environment</div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+      <label for="speed-slider">Simulation Speed</label>
+      <input type="range" id="speed-slider" min="0.2" max="5" step="0.1" value="1"
+             aria-label="Simulation speed" />
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   Global Academic Publishing — self-contained globe visualization
+   No external dependencies. Pure HTML5 Canvas.
+═══════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  /* ── 1. DATA ────────────────────────────────────────────────────────── */
+
+  // [flag, name, lat°, lon°, weight (∝ annual output), isoCode]
+  const COUNTRIES = [
+    ['🇨🇳','China',           35.86,  104.19, 28, 'CN'],
+    ['🇺🇸','United States',   37.09,  -95.71, 20, 'US'],
+    ['🇬🇧','United Kingdom',  55.38,   -3.44,  7, 'GB'],
+    ['🇩🇪','Germany',         51.17,   10.45,  6, 'DE'],
+    ['🇯🇵','Japan',           36.20,  138.25,  5, 'JP'],
+    ['🇮🇳','India',           20.59,   78.96,  5, 'IN'],
+    ['🇫🇷','France',          46.23,    2.21,  4, 'FR'],
+    ['🇨🇦','Canada',          56.13, -106.35,  4, 'CA'],
+    ['🇮🇹','Italy',           41.87,   12.57,  3, 'IT'],
+    ['🇰🇷','South Korea',     35.91,  127.77,  3, 'KR'],
+    ['🇦🇺','Australia',      -25.27,  133.78,  3, 'AU'],
+    ['🇧🇷','Brazil',         -14.24,  -51.93,  2, 'BR'],
+    ['🇪🇸','Spain',           40.46,   -3.75,  2, 'ES'],
+    ['🇳🇱','Netherlands',     52.13,    5.29,  2, 'NL'],
+    ['🇷🇺','Russia',          61.52,  105.32,  2, 'RU'],
+    ['🇵🇱','Poland',          51.92,   19.15,  1, 'PL'],
+    ['🇨🇭','Switzerland',     46.82,    8.23,  1, 'CH'],
+    ['🇸🇪','Sweden',          60.13,   18.64,  1, 'SE'],
+    ['🇵🇹','Portugal',        39.40,   -8.22,  1, 'PT'],
+    ['🇹🇷','Turkey',          38.96,   35.24,  1, 'TR'],
+    ['🇮🇷','Iran',            32.43,   53.69,  1, 'IR'],
+    ['🇿🇦','South Africa',   -30.56,   22.94,  1, 'ZA'],
+    ['🇲🇽','Mexico',          23.63, -102.55,  1, 'MX'],
+    ['🇦🇷','Argentina',      -38.42,  -63.62,  1, 'AR'],
+    ['🇸🇦','Saudi Arabia',    23.89,   45.08,  1, 'SA'],
+    ['🇳🇴','Norway',          60.47,    8.47,  1, 'NO'],
+    ['🇩🇰','Denmark',         56.26,    9.50,  1, 'DK'],
+    ['🇫🇮','Finland',         61.92,   25.75,  1, 'FI'],
+    ['🇧🇪','Belgium',         50.50,    4.47,  1, 'BE'],
+    ['🇦🇹','Austria',         47.52,   14.55,  1, 'AT'],
+    ['🇸🇬','Singapore',        1.35,  103.82,  1, 'SG'],
+    ['🇭🇰','Hong Kong',       22.40,  114.11,  1, 'HK'],
+    ['🇮🇱','Israel',          31.05,   34.85,  1, 'IL'],
+    ['🇨🇿','Czech Republic',  49.82,   15.47,  1, 'CZ'],
+    ['🇬🇷','Greece',          39.07,   21.82,  1, 'GR'],
+    ['🇺🇦','Ukraine',         48.38,   31.17,  1, 'UA'],
+    ['🇳🇿','New Zealand',    -40.90,  174.89,  1, 'NZ'],
+    ['🇨🇱','Chile',          -35.68,  -71.54,  1, 'CL'],
+    ['🇳🇬','Nigeria',          9.08,    8.68,  1, 'NG'],
+    ['🇪🇬','Egypt',           26.82,   30.80,  1, 'EG'],
+    ['🇵🇰','Pakistan',        30.38,   69.35,  1, 'PK'],
+    ['🇧🇩','Bangladesh',      23.68,   90.36,  1, 'BD'],
+    ['🇲🇾','Malaysia',         4.21,  109.45,  1, 'MY'],
+    ['🇮🇩','Indonesia',       -0.79,  113.92,  1, 'ID'],
+    ['🇹🇭','Thailand',        15.87,  100.99,  1, 'TH'],
+    ['🇵🇭','Philippines',     12.88,  121.77,  1, 'PH'],
+    ['🇻🇳','Vietnam',         14.06,  108.28,  1, 'VN'],
+    ['🇷🇴','Romania',         45.94,   24.97,  1, 'RO'],
+    ['🇭🇺','Hungary',         47.16,   19.50,  1, 'HU'],
+    ['🇸🇰','Slovakia',        48.67,   19.70,  1, 'SK'],
+  ];
+
+  const TOTAL_WEIGHT = COUNTRIES.reduce((s, c) => s + c[4], 0);
+  // Build cumulative weight array for weighted random selection
+  let _cum = 0;
+  const CUMULATIVE = COUNTRIES.map(c => (_cum += c[4]));
+
+  function randomCountry() {
+    const r = Math.random() * TOTAL_WEIGHT;
+    const idx = CUMULATIVE.findIndex(w => r < w);
+    return COUNTRIES[Math.max(0, idx)];
+  }
+
+  const FIELDS = [
+    { name: 'Computer Science',      color: '#00d4ff' },
+    { name: 'Medicine',              color: '#a855f7' },
+    { name: 'Physics',               color: '#00d4ff' },
+    { name: 'Biology',               color: '#22c55e' },
+    { name: 'Chemistry',             color: '#00d4ff' },
+    { name: 'Engineering',           color: '#00d4ff' },
+    { name: 'Economics',             color: '#22c55e' },
+    { name: 'Social Sciences',       color: '#22c55e' },
+    { name: 'Psychology',            color: '#22c55e' },
+    { name: 'Environmental Science', color: '#ef4444' },
+    { name: 'Mathematics',           color: '#00d4ff' },
+    { name: 'History',               color: '#f59e0b' },
+    { name: 'Linguistics',           color: '#f59e0b' },
+    { name: 'Astronomy',             color: '#00d4ff' },
+    { name: 'Neuroscience',          color: '#a855f7' },
+    { name: 'Climate Science',       color: '#ef4444' },
+    { name: 'Genomics',              color: '#a855f7' },
+    { name: 'Political Science',     color: '#22c55e' },
+    { name: 'Philosophy',            color: '#f59e0b' },
+    { name: 'Materials Science',     color: '#00d4ff' },
+  ];
+
+  function randomField() {
+    return FIELDS[Math.floor(Math.random() * FIELDS.length)];
+  }
+
+  /* ── 2. HELPERS ─────────────────────────────────────────────────────── */
+
+  function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+  }
+
+  function rgba(hex, a) {
+    const [r, g, b] = hexToRgb(hex);
+    return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+  }
+
+  function deg2rad(d) { return d * Math.PI / 180; }
+
+  /* Add geographic jitter so dots from the same country don't perfectly overlap */
+  function jitter(lat, lng, radius) {
+    const angle = Math.random() * 2 * Math.PI;
+    const dist  = Math.random() * (radius || 3);
+    return { lat: lat + Math.sin(angle) * dist, lng: lng + Math.cos(angle) * dist };
+  }
+
+  /* ── 3. ORTHOGRAPHIC PROJECTION ─────────────────────────────────────── */
+
+  /*
+   * Orthographic (globe-view) projection centred at (φ₀, λ₀).
+   *   φ = latitude  (radians)
+   *   λ = longitude (radians)
+   * Returns { x, y } in [-1, 1] if visible, else null.
+   */
+  function project(latDeg, lngDeg, rotLon, rotLat) {
+    const φ  = deg2rad(latDeg);
+    const λ  = deg2rad(lngDeg);
+    const φ0 = deg2rad(rotLat);
+    const λ0 = deg2rad(rotLon);
+    const dλ = λ - λ0;
+    const sinφ  = Math.sin(φ),  cosφ  = Math.cos(φ);
+    const sinφ0 = Math.sin(φ0), cosφ0 = Math.cos(φ0);
+    const cosdλ = Math.cos(dλ);
+    // z > 0 means the point faces us
+    const z = sinφ * sinφ0 + cosφ * cosφ0 * cosdλ;
+    if (z < 0) return null;
+    return {
+      x:  cosφ * Math.sin(dλ),
+      y: -sinφ * cosφ0 + cosφ * sinφ0 * cosdλ,
+      z,
+    };
+  }
+
+  /* Interpolate n points along the great-circle arc from p1→p2 */
+  function greatCirclePoints(lat1, lng1, lat2, lng2, n) {
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      // Slerp in 3-D cartesian
+      const φ1 = deg2rad(lat1), λ1 = deg2rad(lng1);
+      const φ2 = deg2rad(lat2), λ2 = deg2rad(lng2);
+      const x1 = Math.cos(φ1)*Math.cos(λ1), y1 = Math.cos(φ1)*Math.sin(λ1), z1 = Math.sin(φ1);
+      const x2 = Math.cos(φ2)*Math.cos(λ2), y2 = Math.cos(φ2)*Math.sin(λ2), z2 = Math.sin(φ2);
+      const dot = Math.max(-1, Math.min(1, x1*x2 + y1*y2 + z1*z2));
+      const Ω   = Math.acos(dot);
+      let xi, yi, zi;
+      if (Ω < 1e-6) {
+        xi = x1; yi = y1; zi = z1;
+      } else {
+        const s = 1 / Math.sin(Ω);
+        const a = Math.sin((1-t)*Ω) * s;
+        const b = Math.sin(t*Ω)     * s;
+        xi = a*x1 + b*x2;
+        yi = a*y1 + b*y2;
+        zi = a*z1 + b*z2;
+      }
+      const len = Math.hypot(xi, yi, zi) || 1;
+      xi /= len; yi /= len; zi /= len;
+      pts.push({
+        lat: Math.asin(zi) * 180 / Math.PI,
+        lng: Math.atan2(yi, xi) * 180 / Math.PI,
+      });
+    }
+    return pts;
+  }
+
+  /* Lift arc off sphere surface to create a parabolic-ish arc */
+  function liftedArcPoints(lat1, lng1, lat2, lng2, n, lift) {
+    const gcPts = greatCirclePoints(lat1, lng1, lat2, lng2, n);
+    return gcPts.map((p, i) => {
+      const t = i / n;
+      const sinT = Math.sin(t * Math.PI);  // peaks at midpoint
+      return { lat: p.lat + sinT * lift * 5, lng: p.lng, sinT };
+    });
+  }
+
+  /* ── 4. COUNTERS ────────────────────────────────────────────────────── */
+
+  // ~2.5 million scholarly articles published per year (real-world estimate)
+  const PAPERS_PER_YEAR = 2500000;
+  const MS_PER_HOUR = 3600000;
+  const NOW       = new Date();
+  const DAY_START = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
+  let simTime     = (NOW - DAY_START) / MS_PER_HOUR;  // hours elapsed today
+  let totalEvents = 0;
+  const countryTally = {};
+  const fieldTally   = {};
+  COUNTRIES.forEach(c => (countryTally[c[5]] = 0));
+  FIELDS.forEach(f => (fieldTally[f.name] = 0));
+
+  const elToday     = document.getElementById('cnt-today');
+  const elRate      = document.getElementById('cnt-rate');
+  const elCountries = document.getElementById('cnt-countries');
+  const elEvents    = document.getElementById('cnt-events');
+
+  function updateCounters() {
+    const today = Math.round((simTime / 24) * (PAPERS_PER_YEAR / 365));
+    const rate  = Math.round(PAPERS_PER_YEAR / 365 / 24);
+    const active = Object.values(countryTally).filter(v => v > 0).length;
+    elToday.textContent     = today.toLocaleString();
+    elRate.textContent      = rate.toLocaleString();
+    elCountries.textContent = active;
+    elEvents.textContent    = totalEvents.toLocaleString();
+  }
+
+  /* ── 5. SIDE PANEL ──────────────────────────────────────────────────── */
+
+  function buildCountryList() {
+    const el = document.getElementById('country-list');
+    const sorted = COUNTRIES
+      .map(c => ({ flag: c[0], name: c[1], iso: c[5], count: countryTally[c[5]] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+    const maxCount = sorted[0]?.count || 1;
+    el.innerHTML = sorted.map((c, i) => `
+      <div class="country-row">
+        <span class="country-rank">${i + 1}</span>
+        <span class="country-flag">${c.flag}</span>
+        <span class="country-name">${c.name}</span>
+        <div class="country-bar-wrap">
+          <div class="country-bar" style="width:${Math.round(c.count / maxCount * 100)}%"></div>
+        </div>
+        <span class="country-count">${c.count}</span>
+      </div>`).join('');
+  }
+
+  function buildFieldList() {
+    const el = document.getElementById('field-list');
+    const sorted = FIELDS
+      .map(f => ({ name: f.name, color: f.color, count: fieldTally[f.name] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+    el.innerHTML = sorted.map(f => `
+      <div class="field-row">
+        <span class="field-name">${f.name}</span>
+        <span class="field-badge" style="background:${f.color}22;color:${f.color};border:1px solid ${f.color}44">
+          ${f.count}
+        </span>
+      </div>`).join('');
+  }
+
+  const feedEl  = document.getElementById('feed-list');
+  const FEED_MAX = 7;
+
+  const TITLE_TEMPLATES = [
+    f => `A novel approach to ${f.name.toLowerCase()} using machine learning`,
+    f => `Advances in ${f.name.toLowerCase()}: a systematic review`,
+    f => `Deep learning methods for ${f.name.toLowerCase()} applications`,
+    f => `Cross-national study of ${f.name.toLowerCase()} outcomes`,
+    f => `Emerging trends in ${f.name.toLowerCase()} research`,
+    f => `${f.name} in the era of big data`,
+    f => `Quantitative models for ${f.name.toLowerCase()}`,
+    f => `Open challenges in modern ${f.name.toLowerCase()}`,
+    f => `Interdisciplinary perspectives on ${f.name.toLowerCase()}`,
+    f => `Benchmarking ${f.name.toLowerCase()} frameworks`,
+  ];
+
+  function randomTitle(field) {
+    const tpl = TITLE_TEMPLATES[Math.floor(Math.random() * TITLE_TEMPLATES.length)];
+    const t   = tpl(field);
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  function addFeedItem(country, field) {
+    const item = document.createElement('div');
+    item.className = 'feed-item';
+    item.innerHTML = `
+      <span class="fi-country">${country[0]} ${country[1]}</span> ·
+      <span class="fi-field">${field.name}</span><br>
+      <span class="fi-text">${randomTitle(field)}</span>`;
+    feedEl.insertBefore(item, feedEl.firstChild);
+    while (feedEl.children.length > FEED_MAX) feedEl.removeChild(feedEl.lastChild);
+  }
+
+  /* ── 6. CANVAS & GLOBE STATE ────────────────────────────────────────── */
+
+  const canvas = document.getElementById('globe-canvas');
+  const ctx    = canvas.getContext('2d');
+
+  // Globe rotation state
+  let rotLon = 0;      // longitude of centre (degrees)
+  let rotLat = 20;     // latitude tilt (degrees)
+  let isDragging = false;
+  let dragStart  = { x: 0, y: 0, lon: 0, lat: 0 };
+
+  // Stars (static)
+  let stars = [];
+
+  function buildStars(w, h) {
+    stars = Array.from({ length: 200 }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      r: Math.random() * 1.3 + 0.2,
+      a: Math.random(),
+      da: (Math.random() - 0.5) * 0.005,
+    }));
+  }
+
+  function resize() {
+    const wrap = document.getElementById('canvas-wrap');
+    canvas.width  = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+    buildStars(canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* Derived geometry helpers */
+  function globeGeom() {
+    const R  = Math.min(canvas.width, canvas.height) * 0.42;
+    const cx = canvas.width  / 2;
+    const cy = canvas.height / 2;
+    return { R, cx, cy };
+  }
+
+  /* Convert lat/lng to canvas x,y; returns null if on back side */
+  function toScreen(latDeg, lngDeg) {
+    const { R, cx, cy } = globeGeom();
+    const p = project(latDeg, lngDeg, rotLon, rotLat);
+    if (!p) return null;
+    return { x: cx + R * p.x, y: cy + R * p.y, z: p.z };
+  }
+
+  /* ── 7. PARTICLE SYSTEM ──────────────────────────────────────────────── */
+
+  // Each particle is one publication event
+  const particles = [];
+
+  function spawnEvent() {
+    const country = randomCountry();
+    const field   = randomField();
+    const pos     = jitter(country[2], country[3]);
+
+    // Choose a different destination country for the arc
+    let dest;
+    do { dest = randomCountry(); } while (dest[5] === country[5]);
+    const dpos = jitter(dest[2], dest[3]);
+
+    particles.push({
+      type: 'event',
+      country, field,
+      lat: pos.lat, lng: pos.lng,
+      dLat: dpos.lat, dLng: dpos.lng,
+      born: performance.now(),
+      ttl: 5500 + Math.random() * 2000,
+    });
+
+    countryTally[country[5]]++;
+    fieldTally[field.name]++;
+    totalEvents++;
+    addFeedItem(country, field);
+  }
+
+  /* ── 8. DRAWING ─────────────────────────────────────────────────────── */
+
+  function drawStars() {
+    for (const s of stars) {
+      s.a += s.da;
+      if (s.a <= 0.1) { s.a = 0.1; s.da = Math.abs(s.da); }
+      if (s.a >= 1.0) { s.a = 1.0; s.da = -Math.abs(s.da); }
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${s.a.toFixed(2)})`;
+      ctx.fill();
+    }
+  }
+
+  function drawGlobe() {
+    const { R, cx, cy } = globeGeom();
+
+    /* Ocean gradient */
+    const grad = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.25, R * 0.05,
+                                          cx, cy, R);
+    grad.addColorStop(0,   '#0e3a5a');
+    grad.addColorStop(0.5, '#072030');
+    grad.addColorStop(1,   '#020d1a');
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    /* Atmospheric rim glow */
+    const rim = ctx.createRadialGradient(cx, cy, R * 0.92, cx, cy, R * 1.08);
+    rim.addColorStop(0,   'rgba(0,150,255,0.18)');
+    rim.addColorStop(0.5, 'rgba(0,100,200,0.08)');
+    rim.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 1.08, 0, Math.PI * 2);
+    ctx.fillStyle = rim;
+    ctx.fill();
+
+    /* Clip future draws to sphere */
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.clip();
+
+    /* Latitude grid lines */
+    ctx.lineWidth = 0.4;
+    for (let lat = -80; lat <= 80; lat += 20) {
+      ctx.beginPath();
+      let first = true;
+      for (let lon = -180; lon <= 180; lon += 3) {
+        const s = toScreen(lat, lon);
+        if (!s) { first = true; continue; }
+        if (first) { ctx.moveTo(s.x, s.y); first = false; }
+        else ctx.lineTo(s.x, s.y);
+      }
+      ctx.strokeStyle = 'rgba(0,180,255,0.07)';
+      ctx.stroke();
+    }
+
+    /* Longitude grid lines */
+    for (let lon = -180; lon < 180; lon += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lat = -90; lat <= 90; lat += 3) {
+        const s = toScreen(lat, lon);
+        if (!s) { first = true; continue; }
+        if (first) { ctx.moveTo(s.x, s.y); first = false; }
+        else ctx.lineTo(s.x, s.y);
+      }
+      ctx.strokeStyle = 'rgba(0,180,255,0.07)';
+      ctx.stroke();
+    }
+
+    /* Land mass approximation — textured continent dots */
+    drawLandDots();
+
+    ctx.restore();
+  }
+
+  /* A sparse set of (lat,lng) pairs approximating the world's land masses.
+     Generated from a simple mathematical land mask. */
+  const LAND_DOTS = (function () {
+    const pts = [];
+    // 30 bands of latitude
+    for (let lat = -80; lat <= 80; lat += 4) {
+      const cosL = Math.abs(Math.cos(deg2rad(lat)));
+      const step = Math.max(3, Math.round(5 / (cosL + 0.01)));
+      for (let lng = -180; lng < 180; lng += step) {
+        if (isLand(lat, lng)) pts.push([lat, lng]);
+      }
+    }
+    return pts;
+  })();
+
+  /* Simple bitmask-free approximation of land vs ocean.
+     Covers the main continental masses well enough for a visual. */
+  function isLand(lat, lng) {
+    // Eurasia
+    if (lat > 35 && lat < 72 && lng > -10 && lng < 140) return true;
+    // SE Asia / Indonesia
+    if (lat > -10 && lat < 30 && lng > 90 && lng < 145) return true;
+    // India
+    if (lat > 8 && lat < 35 && lng > 68 && lng < 90) return true;
+    // Arabian Peninsula
+    if (lat > 12 && lat < 30 && lng > 38 && lng < 60) return true;
+    // Africa
+    if (lat > -35 && lat < 37 && lng > -18 && lng < 52) return true;
+    // North America
+    if (lat > 25 && lat < 72 && lng > -168 && lng < -52) return true;
+    // Central America
+    if (lat > 7 && lat < 25 && lng > -92 && lng < -75) return true;
+    // South America
+    if (lat > -56 && lat < 12 && lng > -82 && lng < -34) return true;
+    // Greenland
+    if (lat > 60 && lat < 84 && lng > -55 && lng < -18) return true;
+    // Australia
+    if (lat > -40 && lat < -10 && lng > 114 && lng < 154) return true;
+    // New Zealand
+    if (lat > -47 && lat < -34 && lng > 166 && lng < 178) return true;
+    // Japan
+    if (lat > 31 && lat < 46 && lng > 128 && lng < 146) return true;
+    // Scandinavia
+    if (lat > 57 && lat < 72 && lng > 4 && lng < 32) return true;
+    // UK / Ireland
+    if (lat > 49 && lat < 60 && lng > -10 && lng < 2) return true;
+    // Iceland
+    if (lat > 63 && lat < 67 && lng > -25 && lng < -13) return true;
+    return false;
+  }
+
+  function drawLandDots() {
+    const { R } = globeGeom();
+    const dotR = Math.max(1, R * 0.008);
+    ctx.fillStyle = 'rgba(30,90,60,0.6)';
+    for (const [lat, lng] of LAND_DOTS) {
+      const s = toScreen(lat, lng);
+      if (!s) continue;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawParticles(now) {
+    const { R } = globeGeom();
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p   = particles[i];
+      const age = now - p.born;
+      if (age > p.ttl) { particles.splice(i, 1); continue; }
+      const life = 1 - age / p.ttl;  // 1 → 0
+
+      const [r, g, b] = hexToRgb(p.field.color);
+
+      /* ── Origin dot ── */
+      const src = toScreen(p.lat, p.lng);
+      if (src) {
+        const radius = R * 0.018 * (0.5 + 0.5 * life);
+        // Glow
+        const grd = ctx.createRadialGradient(src.x, src.y, 0, src.x, src.y, radius * 3);
+        grd.addColorStop(0,   `rgba(${r},${g},${b},${(life * 0.8).toFixed(2)})`);
+        grd.addColorStop(0.4, `rgba(${r},${g},${b},${(life * 0.3).toFixed(2)})`);
+        grd.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.beginPath();
+        ctx.arc(src.x, src.y, radius * 3, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+        // Core dot
+        ctx.beginPath();
+        ctx.arc(src.x, src.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(1, life * 1.5).toFixed(2)})`;
+        ctx.fill();
+
+        /* ── Expanding ring ── */
+        const ringAge  = age / Math.min(p.ttl, 1800);
+        const ringR    = R * 0.04 * Math.min(1, ringAge * 2);
+        const ringAlpha = Math.max(0, 1 - ringAge * 1.5) * life;
+        if (ringAlpha > 0.01) {
+          ctx.beginPath();
+          ctx.arc(src.x, src.y, ringR, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${r},${g},${b},${ringAlpha.toFixed(2)})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+
+      /* ── Arc to co-author country ── */
+      const arcProgress = Math.min(1, age / (p.ttl * 0.6));
+      if (arcProgress > 0.02) {
+        const arcPts = liftedArcPoints(p.lat, p.lng, p.dLat, p.dLng, 40, 8);
+        const visible = arcPts.map(pt => toScreen(pt.lat, pt.lng));
+        const drawLen = Math.floor(arcProgress * (arcPts.length - 1));
+
+        ctx.beginPath();
+        let drawing = false;
+        for (let j = 0; j < drawLen; j++) {
+          const sv = visible[j];
+          if (!sv) { drawing = false; continue; }
+          if (!drawing) { ctx.moveTo(sv.x, sv.y); drawing = true; }
+          else ctx.lineTo(sv.x, sv.y);
+        }
+        const arcAlpha = Math.min(0.9, life * 1.3);
+        ctx.strokeStyle = `rgba(${r},${g},${b},${arcAlpha.toFixed(2)})`;
+        ctx.lineWidth = 1.2;
+        ctx.shadowColor = p.field.color;
+        ctx.shadowBlur  = 6;
+        ctx.stroke();
+        ctx.shadowBlur  = 0;
+
+        /* Travelling dot along the arc */
+        const tipIdx = Math.min(drawLen, arcPts.length - 1);
+        const tip = visible[tipIdx];
+        if (tip) {
+          ctx.beginPath();
+          ctx.arc(tip.x, tip.y, 3, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${r},${g},${b},${arcAlpha.toFixed(2)})`;
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  /* ── 9. INTERACTION ──────────────────────────────────────────────────── */
+
+  canvas.addEventListener('mousedown', e => {
+    isDragging = true;
+    dragStart = { x: e.clientX, y: e.clientY, lon: rotLon, lat: rotLat };
+  });
+  canvas.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    const { R } = globeGeom();
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    rotLon = dragStart.lon - dx / R * 60;
+    rotLat = Math.max(-60, Math.min(60, dragStart.lat + dy / R * 60));
+  });
+  canvas.addEventListener('mouseup',    () => { isDragging = false; });
+  canvas.addEventListener('mouseleave', () => { isDragging = false; });
+
+  canvas.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    isDragging = true;
+    dragStart = { x: t.clientX, y: t.clientY, lon: rotLon, lat: rotLat };
+  }, { passive: true });
+  canvas.addEventListener('touchmove', e => {
+    if (!isDragging) return;
+    const t = e.touches[0];
+    const { R } = globeGeom();
+    const dx = t.clientX - dragStart.x;
+    const dy = t.clientY - dragStart.y;
+    rotLon = dragStart.lon - dx / R * 60;
+    rotLat = Math.max(-60, Math.min(60, dragStart.lat + dy / R * 60));
+  }, { passive: true });
+  canvas.addEventListener('touchend', () => { isDragging = false; });
+
+  /* ── 10. MAIN LOOP ──────────────────────────────────────────────────── */
+
+  let speedMult  = 1;
+  let lastFrame  = performance.now();
+  let eventBudget = 0;
+  let panelTimer  = 0;
+  let counterTimer = 0;
+
+  document.getElementById('speed-slider').addEventListener('input', function () {
+    speedMult = parseFloat(this.value);
+  });
+
+  function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min(now - lastFrame, 100);
+    lastFrame = now;
+
+    /* Auto-rotate when not dragging */
+    if (!isDragging) rotLon += 0.012 * speedMult;
+
+    /* Advance simulated clock */
+    simTime += (dt / MS_PER_HOUR) * speedMult;
+
+    /* Spawn events at ~2/sec at 1× speed */
+    eventBudget += 2 * speedMult * (dt / 1000);
+    while (eventBudget >= 1) { spawnEvent(); eventBudget -= 1; }
+
+    /* ── Draw ── */
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawStars();
+    drawGlobe();
+    drawParticles(now);
+
+    /* ── UI updates ── */
+    panelTimer   += dt;
+    counterTimer += dt;
+    if (panelTimer > 1400) {
+      panelTimer = 0;
+      buildCountryList();
+      buildFieldList();
+    }
+    if (counterTimer > 750) {
+      counterTimer = 0;
+      updateCounters();
+    }
+  }
+
+  /* Kick off */
+  buildCountryList();
+  buildFieldList();
+  updateCounters();
+  requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
